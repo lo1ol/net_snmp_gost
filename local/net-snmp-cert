@@ -759,6 +759,8 @@ sub usage {
   print "     -X, --crt <crt>       -- explicit output certificate\n";
   print "     -y, --install         -- install result in local repository\n";
   print "\n   DISTINGUISHED NAME OPTIONS (<dn-opts>):\n";
+  print "     --keyalg <kayalg>         -- name of key algorithm\n";
+  print "     --keyparam <keyparam>     -- key parametr\n";
   print "     -e, --email <email>       -- email name\n";
   print "     -h, --host <host>         -- DNS host name, or IP address\n";
   print "     -d, --days <days>         -- number of days certificate is valid\n";
@@ -1565,6 +1567,7 @@ sub run {
 				  'san|s=s@', 'org|o=s', 'unit|u=s',
 				  'country|c=s', 'state|province|p=s',
 				  'locality|l=s', 'brief|b',
+				  'keyalg=s', 'keyparam=s',
 				  @NetSNMP::Cert::X509FMTS);
 
   # process extra args; --<cfg-name>[=<val>]
@@ -1938,6 +1941,8 @@ sub genCa {
              $NetSNMP::Cert::DEFCADAYS;
   my $cn = $config->inherit('cn') || $config->inherit('commonName') ||
            "ca-$host";
+  my $keyalg = $config->inherit('keyalg') || 'rsa';
+  my $keyparam = $config->inherit('keyparam') || join ('rsa_keygen_bits:', $config->inherit('keySize'));
   my $ca = $config->inherit('with-ca');
   my $tag = $config->inherit('tag') || $cn;
 
@@ -1958,7 +1963,7 @@ sub genCa {
 				   $config->inherit('interactive'),
 				   $config->inherit('force'));
 
-  my $cmd = "$env openssl req -extensions v3_ca_create -new -days $days -batch -config $NetSNMP::Cert::SSLCFG -keyout '$outKey'";
+  my $cmd = "$env openssl req -newkey $keyalg -pkeyopt $keyparam -extensions v3_ca_create -new -days $days -batch -config $NetSNMP::Cert::SSLCFG -keyout '$outKey'";
   $cmd .= " -nodes";
 
   if (defined $ca) {
@@ -2540,6 +2545,10 @@ see FORMAT OPTIONS to specify output format
 =head1   DISTINGUISHED NAME OPTIONS (<dn-opts>)
 
 =over
+
+=item --keyalg <kayalg>         -- name of key algorithm
+
+=item --keyparam <keyparam>     -- key parametr
 
 =item -e, --email <email>       -- email name
 
