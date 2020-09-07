@@ -1942,7 +1942,13 @@ sub genCa {
   my $cn = $config->inherit('cn') || $config->inherit('commonName') ||
            "ca-$host";
   my $keyalg = $config->inherit('keyalg') || 'rsa';
-  my $keyparam = $config->inherit('keyparam') || join ('rsa_keygen_bits:', $config->inherit('keySize'));
+  my $keyparam = $config->inherit('keyparam');
+  if (! $keyparam) {
+  	$keyparam=''
+  } else {
+  	$keyparam="-pkeyopt $keyparam"
+  }
+
   my $ca = $config->inherit('with-ca');
   my $tag = $config->inherit('tag') || $cn;
 
@@ -1963,7 +1969,7 @@ sub genCa {
 				   $config->inherit('interactive'),
 				   $config->inherit('force'));
 
-  my $cmd = "$env openssl req -newkey $keyalg -pkeyopt $keyparam -extensions v3_ca_create -new -days $days -batch -config $NetSNMP::Cert::SSLCFG -keyout '$outKey'";
+  my $cmd = "$env openssl req -newkey $keyalg $keyparam -extensions v3_ca_create -new -days $days -batch -config $NetSNMP::Cert::SSLCFG -keyout '$outKey'";
   $cmd .= " -nodes";
 
   if (defined $ca) {
