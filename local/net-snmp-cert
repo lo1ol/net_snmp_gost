@@ -2014,6 +2014,15 @@ sub genCert {
   my $days = $config->inherit('days') || $config->inherit('crtDays') || $NetSNMP::Cert::DEFCRTDAYS;
   my $cn = $config->inherit('cn') || $config->inherit('commonName');
   my $ca = $config->inherit('with-ca');
+
+  my $keyalg = $config->inherit('keyalg') || 'rsa';
+  my $keyparam = $config->inherit('keyparam');
+  if (! $keyparam) {
+        $keyparam=''
+  } else {
+        $keyparam="-pkeyopt $keyparam"
+  }
+
   my $cmd;
 
   my $tag = $opts->{'tag'} || 'snmp';
@@ -2031,7 +2040,7 @@ sub genCert {
 				   $config->inherit('interactive'),
 				   $config->inherit('force'));
 
-  $cmd = "$env openssl req -extensions v3_user_create -new -days $days -keyout '$outKey' -batch -config $NetSNMP::Cert::SSLCFG";
+  $cmd = "$env openssl req -newkey $keyalg $keyparam -extensions v3_user_create -new -days $days -keyout '$outKey' -batch -config $NetSNMP::Cert::SSLCFG";
   $cmd .= " -nodes";
 
   if (defined $ca) {
@@ -2078,6 +2087,15 @@ sub genCsr {
   my $cn = $config->inherit('cn') || $config->inherit('commonName');
   my $tag = $config->inherit('tag');
   my $inCrt = $config->inherit('from-crt') || $config->inherit('fromCert');
+  
+  my $keyalg = $config->inherit('keyalg') || 'rsa';
+  my $keyparam = $config->inherit('keyparam');
+  if (! $keyparam) {
+        $keyparam=''
+  } else {
+        $keyparam="-pkeyopt $keyparam"
+  }
+
   my $outCsr;
   my $csrKey;
 
@@ -2106,7 +2124,7 @@ sub genCsr {
 
   my $cmd = (defined $inCrt ?
   "$env openssl x509 -x509toreq -in $inCrt -out '$outCsr' -signkey '$csrKey' -nodes -days $days -batch -config $NetSNMP::Cert::SSLCFG" :
-  "$env openssl req -new -nodes -days $days -batch -keyout '$csrKey' -out '$outCsr' -config $NetSNMP::Cert::SSLCFG");
+  "$env openssl req -newkey $keyalg $keyparam -new -nodes -days $days -batch -keyout '$csrKey' -out '$outCsr' -config $NetSNMP::Cert::SSLCFG");
 
   $cmd .= ($isCa ? " -extensions v3_ca_create" : " -extensions v3_user_create");
 
