@@ -354,6 +354,9 @@ if test "x$tryopenssl" != "xno" -a "x$tryopenssl" != "xinternal"; then
             fi
             TLSPROG=yes
         fi
+        if echo " $transport_result_list " | $GREP "FIOT" > /dev/null; then
+            LIBCRYPTO=" -lakrypt-shared $LIBCRYPTO"
+        fi
         if echo " $transport_result_list " | $GREP "TLS" > /dev/null; then
 	    if test x$ac_cv_func_TLSv1_method = xyes -o \
                     x$ac_cv_func_TLS_method = xyes; then

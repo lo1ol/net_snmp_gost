@@ -97,8 +97,71 @@ static int
 netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
                      void **opaque, int *olength)
 {
-    int             rc = -1;
-    return rc;
+   int             rc = -1;
+   char ip[16];
+   struct sockaddr_in cl_addr;
+   struct fiot ctx;
+   char msg;
+   int error = ak_error_ok, fd = -1;
+   socklen_t opt = 0;
+
+   if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
+                ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
+   		return rc;
+   }
+
+   if (ak_network_connect(t->sock, &cl_addr, opt) != ak_error_ok) {
+                ak_error_message(error, __func__, "wrong UDP-connection to client address");
+   		return rc;
+   }
+   fd = t->sock;
+
+   if( ak_network_inet_ntop( AF_INET, &cl_addr.sin_addr, ip, (socklen_t) sizeof( ip )) == NULL ) {
+	ak_error_message_fmt( -1, __func__,
+                                        "can't determine client's address (%s)", strerror( errno ));
+  	return rc;
+   }
+   printf( "echo-server: accepted client from %s:%u\n", ip, cl_addr.sin_port );
+
+
+  /* часть вторая: аутентификация клиента и выполнение протокола выработки общих ключей */
+
+
+  /* устанавливаем криптографические параметры взаимодействия и запускаем протокол выработки ключей */
+  /* создаем контекст защищенного соединения */
+   if(( error = ak_fiot_context_create( &ctx )) != ak_error_ok ) {
+        ak_error_message( error, __func__, "incorrect fiot context creation" );
+   	return rc;
+   }
+
+  /* устанавливаем роль */
+   if(( error = ak_fiot_context_set_role( &ctx, server_role )) != ak_error_ok ) goto exit;
+  /* устанавливаем идентификатор сервера */
+   if(( error = ak_fiot_context_set_user_identifier( &ctx, server_role,
+                                                       "serverID", 8 )) != ak_error_ok ) goto exit;
+  /* устанавливаем сокет для внешнего (шифрующего) интерфейса */
+   if(( error = ak_fiot_context_set_interface_descriptor( &ctx,
+                                            encryption_interface, fd )) != ak_error_ok ) goto exit;
+  /* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
+   if(( error =  ak_fiot_context_set_server_policy( &ctx,
+                                            magmaCTRplusGOST3413 )) != ak_error_ok ) goto exit;
+  /* теперь выполняем протокол */
+   if(( error = ak_fiot_context_keys_generation_protocol( &ctx )) != ak_error_ok ) goto exit;
+   printf( "echo-server: client authentication is Ok\n" );
+
+   size_t length;
+   message_t mtype = undefined_message;
+   ak_uint8 *data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
+   if( data != NULL ) {
+     data[length-1] = 0;
+     printf( "echo-server: recived [%s]\n", data );
+   }
+
+   strncpy(buf, data, length);
+
+  exit:
+   ak_fiot_context_destroy( &ctx );
+   return rc;
 }
 
 
@@ -107,8 +170,48 @@ static int
 netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
                      void **opaque, int *olength)
 {
+    int error = ak_error_ok;
     int rc = -1;
-    return rc;
+    struct fiot ctx;
+    struct sockaddr_in socket_address;
+
+  /* создаем контекст защищенного соединения */
+   if(( error = ak_fiot_context_create( &ctx )) != ak_error_ok )
+     return ak_error_message( error, __func__, "incorrect context creation" );
+
+  /* устанавливаем роль */
+   if(( error = ak_fiot_context_set_role( &ctx, client_role )) != ak_error_ok ) goto exit;
+  /* устанавливаем идентификатор сервера */
+   if(( error = ak_fiot_context_set_user_identifier( &ctx, server_role,
+                                                 "serverID", 8 )) != ak_error_ok ) goto exit;
+   if(( error = ak_fiot_context_set_user_identifier( &ctx, client_role,
+                             "Client with long identifier", 27 )) != ak_error_ok ) goto exit;
+
+  /* устанавливаем сокет для внешнего (шифрующего) интерфейса */
+   if(( error = ak_fiot_context_set_interface_descriptor( &ctx,
+                                    encryption_interface, t->sock )) != ak_error_ok ) goto exit;
+  /* устанавливаем идентификатор ключа аутентификации */
+   if(( error = ak_fiot_context_set_psk_identifier( &ctx,
+                                          ePSK_key, "12345", 5 )) != ak_error_ok ) goto exit;
+   if(( error = ak_fiot_context_set_curve( &ctx,
+                              tc26_gost3410_2012_256_paramsetA )) != ak_error_ok ) goto exit;
+   if(( error = ak_fiot_context_set_initial_crypto_mechanism( &ctx,
+                                             magmaGOST3413ePSK )) != ak_error_ok ) goto exit;
+  /* здесь реализация протокола */
+   if(( error = ak_fiot_context_keys_generation_protocol( &ctx )) != ak_error_ok ) goto exit;
+   printf( "echo-client: server authentication is Ok\n" );
+
+   if(( error = ak_fiot_context_write_frame( &ctx, buf, size,
+                                             encrypted_frame, application_data )) != ak_error_ok ) {
+     ak_error_message( error, __func__, "write error" );
+   } else {
+	   printf("echo-client: send %u bytes\n", (unsigned int) strlen( buf ));
+   	   rc = size;
+   }
+  exit:
+   ak_fiot_context_destroy( &ctx );
+
+  return rc;
 }
 
 
@@ -160,8 +263,8 @@ _transport_common(netsnmp_transport *t, int local)
     t->f_recv          = netsnmp_fiotudp_recv;
     t->f_send          = netsnmp_fiotudp_send;
     t->f_close         = netsnmp_fiotudp_close;
-    t->f_config        = NULL;
-    t->f_setup_session = NULL;
+    t->f_config        = netsnmp_tlsbase_config;
+    t->f_setup_session = netsnmp_tlsbase_session_init;
     t->f_accept        = NULL;
     t->f_fmtaddr       = NULL;
     t->f_get_taddr     = NULL;
@@ -189,9 +292,30 @@ netsnmp_fiotudp_transport(const struct netsnmp_ep *ep, int local)
         return NULL;
     }
 
+    if (!local) {
+        /* dtls needs to bind the socket for SSL_write to work */
+        if (connect(t->sock, (const struct sockaddr *)addr, sizeof(*addr)) < 0)
+            snmp_log(LOG_ERR, "dtls: failed to connect\n");
+    }
+
     return t2;
 }
 
+netsnmp_transport *
+netsnmp_fiotudp_create_tstring(const char *str, int isserver,
+                               const char *default_target)
+{
+    struct netsnmp_ep ep;
+    netsnmp_transport *t;
+    char buf[SPRINT_MAX_LEN], *cp;
+
+    if (netsnmp_sockaddr_in3(&ep, str, default_target))
+        t = netsnmp_fiotudp_transport(&ep, isserver);
+    else
+        return NULL;
+
+    return t;
+}
 
 netsnmp_transport *
 netsnmp_fiotudp_create_ostring(const void *o, size_t o_len, int local)
@@ -208,6 +332,9 @@ netsnmp_fiotudp_create_ostring(const void *o, size_t o_len, int local)
 void
 netsnmp_fiotudp_ctor(void)
 {
+    if( !ak_libakrypt_create( ak_function_log_stderr )) { ak_libakrypt_destroy(); return; } 
+    ak_log_set_level( fiot_log_maximum );
+
     static const char indexname[] = "_netsnmp_addr_info";
     static const char *prefixes[] = { "fiotudp", "fiot"
     };
@@ -223,7 +350,7 @@ netsnmp_fiotudp_ctor(void)
     for (i = 0; i < num_prefixes; ++ i)
         fiotudpDomain.prefix[i] = prefixes[i];
 
-    fiotudpDomain.f_create_from_tstring_new = NULL;
+    fiotudpDomain.f_create_from_tstring_new = netsnmp_fiotudp_create_tstring;
     fiotudpDomain.f_create_from_ostring     = netsnmp_fiotudp_create_ostring;
 
     netsnmp_tdomain_register(&fiotudpDomain);
