@@ -49,6 +49,9 @@
 #ifdef NETSNMP_TRANSPORT_DTLSUDP_DOMAIN
 #include <net-snmp/library/snmpDTLSUDPDomain.h>
 #endif
+#ifdef NETSNMP_TRANSPORT_FIOTUDP_DOMAIN
+#include <net-snmp/library/snmpFIOTUDPDomain.h>
+#endif
 #ifdef NETSNMP_TRANSPORT_SSH_DOMAIN
 #include <net-snmp/library/snmpSSHDomain.h>
 #endif

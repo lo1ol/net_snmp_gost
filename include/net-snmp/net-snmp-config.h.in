@@ -2244,6 +2244,10 @@
     available.   */
 #undef NETSNMP_TRANSPORT_DTLSUDP_DOMAIN
 
+/*  This is defined if support for the FIOT/UDP transport domain is
+    available.   */
+#undef NETSNMP_TRANSPORT_FIOTUDP_DOMAIN
+
 /*  This is defined if support for the TLS/TCP transport domain is
     available.   */
 #undef NETSNMP_TRANSPORT_TLSTCP_DOMAIN
