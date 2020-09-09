@@ -103,8 +103,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    struct fiot ctx;
    char msg;
    int error = ak_error_ok, fd = -1;
-   socklen_t opt = 0;
-
+   socklen_t opt = sizeof( cl_addr );
    if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
                 ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
    		return rc;
@@ -142,6 +141,8 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
   /* устанавливаем сокет для внешнего (шифрующего) интерфейса */
    if(( error = ak_fiot_context_set_interface_descriptor( &ctx,
                                             encryption_interface, fd )) != ak_error_ok ) goto exit;
+   if(( error = ak_fiot_context_set_client( &ctx,
+                                            &cl_addr )) != ak_error_ok ) goto exit;
   /* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
    if(( error =  ak_fiot_context_set_server_policy( &ctx,
                                             magmaCTRplusGOST3413 )) != ak_error_ok ) goto exit;
@@ -154,10 +155,11 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    ak_uint8 *data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
    if( data != NULL ) {
      data[length-1] = 0;
-     printf( "echo-server: recived [%s]\n", data );
+     printf( "echo-server: recived length %lu\n", length );
    }
 
    strncpy(buf, data, length);
+   rc = length;
 
   exit:
    ak_fiot_context_destroy( &ctx );
@@ -205,7 +207,7 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
                                              encrypted_frame, application_data )) != ak_error_ok ) {
      ak_error_message( error, __func__, "write error" );
    } else {
-	   printf("echo-client: send %u bytes\n", (unsigned int) strlen( buf ));
+	   printf("echo-client: send %d bytes\n", size);
    	   rc = size;
    }
   exit:
@@ -332,8 +334,8 @@ netsnmp_fiotudp_create_ostring(const void *o, size_t o_len, int local)
 void
 netsnmp_fiotudp_ctor(void)
 {
-    if( !ak_libakrypt_create( ak_function_log_stderr )) { ak_libakrypt_destroy(); return; } 
-    ak_log_set_level( fiot_log_maximum );
+    if( !ak_libakrypt_create( ak_function_log_syslog )) { ak_libakrypt_destroy(); return; } 
+    ak_log_set_level( fiot_log_minimal );
 
     static const char indexname[] = "_netsnmp_addr_info";
     static const char *prefixes[] = { "fiotudp", "fiot"
