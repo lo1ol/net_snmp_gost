@@ -154,11 +154,10 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    message_t mtype = undefined_message;
    ak_uint8 *data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
    if( data != NULL ) {
-     data[length-1] = 0;
      printf( "echo-server: recived length %lu\n", length );
    }
 
-   strncpy(buf, data, length);
+   memcpy(buf, data, length);
    rc = length;
 
   exit:
