@@ -161,6 +161,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    *olength=length;
    *opaque = malloc(sizeof(netsnmp_tmStateReference));
    memcpy(*opaque, data, length);
+   ((netsnmp_tmStateReference*) *opaque)->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV; // TODO
 
   data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
    if( data != NULL ) {
