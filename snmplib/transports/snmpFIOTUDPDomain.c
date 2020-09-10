@@ -152,7 +152,17 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 
    size_t length;
    message_t mtype = undefined_message;
+   
    ak_uint8 *data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
+   if( data != NULL ) {
+     printf( "echo-server: recived length %lu\n", length );
+   }
+
+   *olength=length;
+   *opaque = malloc(sizeof(netsnmp_tmStateReference));
+   memcpy(*opaque, data, length);
+
+  data = ak_fiot_context_read_frame( &ctx, &length, &mtype );
    if( data != NULL ) {
      printf( "echo-server: recived length %lu\n", length );
    }
@@ -201,6 +211,15 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
   /* здесь реализация протокола */
    if(( error = ak_fiot_context_keys_generation_protocol( &ctx )) != ak_error_ok ) goto exit;
    printf( "echo-client: server authentication is Ok\n" );
+
+
+   if(( error = ak_fiot_context_write_frame( &ctx, *opaque, *olength,
+                                             encrypted_frame, application_data )) != ak_error_ok ) {
+     ak_error_message( error, __func__, "write error" );
+   } else {
+           printf("echo-client: send %d bytes\n", *olength);
+           rc = size;
+   }
 
    if(( error = ak_fiot_context_write_frame( &ctx, buf, size,
                                              encrypted_frame, application_data )) != ak_error_ok ) {
