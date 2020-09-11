@@ -97,7 +97,7 @@ static netsnmp_tdomain fiotudpDomain;
 
 typedef struct fiot_cache_s {
    struct fiot_cache_s *next;
-   struct netsnmp_sockaddr_storage *sas;
+   netsnmp_sockaddr_storage sas;
    struct fiot fctx;
 } fiot_cache;
 
@@ -164,7 +164,7 @@ static void remove_and_free_fiot_cache(fiot_cache *cachep)
 
 static fiot_cache *
 start_new_cached_connection(netsnmp_transport *t,
-                            struct sockaddr_in *remote_addr,
+                            struct sockaddr_in remote_addr,
                             int we_are_client)
 {
     fiot_cache *cachep = NULL;
@@ -226,7 +226,7 @@ start_new_cached_connection(netsnmp_transport *t,
   	 if(( error = ak_fiot_context_set_interface_descriptor( ctx,
                                             encryption_interface, fd )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_client( ctx,
-                                            *remote_addr )) != ak_error_ok ) goto exit;
+                                            remote_addr )) != ak_error_ok ) goto exit;
   	/* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
   	 if(( error =  ak_fiot_context_set_server_policy( ctx,
                                             magmaCTRplusGOST3413 )) != ak_error_ok ) goto exit;
@@ -249,14 +249,14 @@ start_new_cached_connection(netsnmp_transport *t,
 
 static fiot_cache *
 find_or_create_fiot_cache(netsnmp_transport *t,
-                         struct netsnmp_sockaddr_storage *from_addr,
+                         netsnmp_sockaddr_storage *from_addr,
                          int we_are_client)
 {
     fiot_cache *cachep = find_fiot_cache(from_addr);
 
     if (NULL == cachep) {
         /* none found; need to start a new context */
-        cachep = start_new_cached_connection(t, from_addr, we_are_client);
+        cachep = start_new_cached_connection(t, from_addr->sin, we_are_client);
         if (NULL == cachep) {
             snmp_log(LOG_ERR, "failed to open a new fiot connection\n");
         }
@@ -274,20 +274,44 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
                      void **opaque, int *olength)
 {
    int             rc = -1;
+   netsnmp_indexed_addr_pair *addr_pair = NULL;
    struct sockaddr_in cl_addr;
    char msg;
    int error = ak_error_ok, fd = -1;
    socklen_t opt = sizeof( cl_addr );
    ak_fiot ctx;
    
-   if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
-                ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
-   		return rc;
-   }
+//   if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
+//                ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
+//  		return rc;
+//   }
+   
+   netsnmp_tmStateReference* tmStateRef = malloc(sizeof(netsnmp_tmStateReference));
+   memcpy(tmStateRef->transportDomain,
+           netsnmpFIOTUDPDomain, sizeof(netsnmpFIOTUDPDomain[0]) *
+           netsnmpFIOTUDPDomain_len);
+    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
 
-   rc = t->base_transport->f_recv(t, buf, size, &opaque, &olen);
+    addr_pair = &tmStateRef->addresses;
+    tmStateRef->have_addresses = 1;
 
-   fiot_cache* cachep = find_or_create_fiot_cache(t, &cl_addr, WE_ARE_SERVER);
+    while (rc < 0) {
+        void *opaque = NULL;
+        int olen;
+        rc = t->base_transport->f_recv(t, buf, size, &opaque, &olen);
+        if (rc > 0) {
+            if (olen > sizeof(*addr_pair))
+                snmp_log(LOG_ERR, "%s: from address length %d > %d\n",
+                         __func__, olen, (int)sizeof(*addr_pair));
+            memcpy(addr_pair, opaque, SNMP_MIN(sizeof(*addr_pair), olen));
+        }
+        SNMP_FREE(opaque);
+        if (rc < 0 && errno != EINTR) {
+            break;
+        }
+    }
+	
+   fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_SERVER);
    ctx = &cachep->fctx;
 
    size_t length;
