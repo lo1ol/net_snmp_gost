@@ -398,7 +398,22 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
 static int
 netsnmp_fiotudp_close(netsnmp_transport *t)
 {
-    return -1;
+    fiot_cache *cachep = NULL;
+    _netsnmpTLSBaseData *tlsbase = NULL;
+
+    DEBUGTRACETOK("9:fiotudp");
+
+    DEBUGMSGTL(("fiotudp:close", "closing fiotudp transport %p\n", t));
+
+    if (NULL != t->data && t->data_length == sizeof(_netsnmpTLSBaseData)) {
+        tlsbase = t->data;
+
+        if (tlsbase->addr)
+            cachep = find_fiot_cache(&tlsbase->addr->remote_addr);
+    }
+
+    remove_and_free_fiot_cache(cachep);
+    return netsnmp_socketbase_close(t);
 }
 
 static char *
