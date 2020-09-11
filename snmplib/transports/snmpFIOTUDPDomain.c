@@ -240,6 +240,7 @@ start_new_cached_connection(netsnmp_transport *t,
 
     DEBUGMSGTL(("fiotudp", "starting a new connection\n"));
     cachep->next = fiot_cache_list;
+    cachep->sas.sin = remote_addr;
     fiot_cache_list = cachep;
 
     exit:
@@ -274,44 +275,22 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
                      void **opaque, int *olength)
 {
    int             rc = -1;
-   netsnmp_indexed_addr_pair *addr_pair = NULL;
+   netsnmp_indexed_addr_pair addr_pair;
    struct sockaddr_in cl_addr;
    char msg;
    int error = ak_error_ok, fd = -1;
    socklen_t opt = sizeof( cl_addr );
    ak_fiot ctx;
    
-//   if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
-//                ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
-//  		return rc;
-//   }
+   if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
+                ak_error_message(ak_error_read_data, __func__, "wrong first client message receiving");
+  		return rc;
+   }
+
+   addr_pair.remote_addr.sin = cl_addr;
    
-   netsnmp_tmStateReference* tmStateRef = malloc(sizeof(netsnmp_tmStateReference));
-   memcpy(tmStateRef->transportDomain,
-           netsnmpFIOTUDPDomain, sizeof(netsnmpFIOTUDPDomain[0]) *
-           netsnmpFIOTUDPDomain_len);
-    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
-
-    addr_pair = &tmStateRef->addresses;
-    tmStateRef->have_addresses = 1;
-
-    while (rc < 0) {
-        void *opaque = NULL;
-        int olen;
-        rc = t->base_transport->f_recv(t, buf, size, &opaque, &olen);
-        if (rc > 0) {
-            if (olen > sizeof(*addr_pair))
-                snmp_log(LOG_ERR, "%s: from address length %d > %d\n",
-                         __func__, olen, (int)sizeof(*addr_pair));
-            memcpy(addr_pair, opaque, SNMP_MIN(sizeof(*addr_pair), olen));
-        }
-        SNMP_FREE(opaque);
-        if (rc < 0 && errno != EINTR) {
-            break;
-        }
-    }
 	
-   fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_SERVER);
+   fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
    ctx = &cachep->fctx;
 
    size_t length;
@@ -325,6 +304,11 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    *olength=length;
    *opaque = malloc(sizeof(netsnmp_tmStateReference));
    memcpy(*opaque, data, length);
+   
+   netsnmp_tmStateReference* tmStateRef = *opaque;
+
+   tmStateRef->addresses = addr_pair;
+   tmStateRef->have_addresses = 1;
 
   data = ak_fiot_context_read_frame( ctx, &length, &mtype );
    if( data != NULL ) {
