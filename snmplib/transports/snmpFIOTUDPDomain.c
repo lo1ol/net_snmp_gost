@@ -424,6 +424,9 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
 	    cachep = find_fiot_cache(&addr_pair->remote_addr);
     }
 
+    if (NULL == cachep)
+	    return netsnmp_socketbase_close(t);
+
     if (ak_fiot_context_get_role(&cachep->fctx) == client_role)
     	ak_fiot_context_write_frame( &cachep->fctx, CLOSE_CONNECTION_MSG, strlen(CLOSE_CONNECTION_MSG),
                                              encrypted_frame, application_data );
