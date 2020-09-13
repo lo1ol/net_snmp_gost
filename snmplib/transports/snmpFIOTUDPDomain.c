@@ -90,6 +90,8 @@ netsnmp_feature_require(sockaddr_size);
 #define WE_ARE_SERVER 0
 #define WE_ARE_CLIENT 1
 
+#define CLOSE_CONNECTION_MSG "Close connection"
+
 oid             netsnmpFIOTUDPDomain[] = { TRANSPORT_DOMAIN_FIOT_UDP_IP };
 size_t          netsnmpFIOTUDPDomain_len = OID_LENGTH(netsnmpFIOTUDPDomain);
 
@@ -301,6 +303,11 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
      printf( "echo-server: recived length %lu\n", length );
    }
 
+   if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
+	   remove_and_free_fiot_cache(cachep);	   
+	   return -2;
+   }
+
    *olength=length;
    *opaque = malloc(sizeof(netsnmp_tmStateReference));
    memcpy(*opaque, data, length);
@@ -411,6 +418,15 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
         if (tlsbase->addr)
             cachep = find_fiot_cache(&tlsbase->addr->remote_addr);
     }
+
+    if (NULL != t->data && t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
+    	netsnmp_indexed_addr_pair* addr_pair = t->data;
+	    cachep = find_fiot_cache(&addr_pair->remote_addr);
+    }
+
+    if (ak_fiot_context_get_role(&cachep->fctx) == client_role)
+    	ak_fiot_context_write_frame( &cachep->fctx, CLOSE_CONNECTION_MSG, strlen(CLOSE_CONNECTION_MSG),
+                                             encrypted_frame, application_data );
 
     remove_and_free_fiot_cache(cachep);
     return netsnmp_socketbase_close(t);
