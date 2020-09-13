@@ -239,7 +239,8 @@ start_new_cached_connection(netsnmp_transport *t,
   	/* устанавливаем идентификатор ключа аутентификации */
   	 if(( error = ak_fiot_context_set_psk_identifier( ctx,
                                           ePSK_key, id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
-  	 if(( error = ak_fiot_context_set_curve( ctx,
+  	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
+	 if(( error = ak_fiot_context_set_curve( ctx,
                               tc26_gost3410_2012_256_paramsetA )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_initial_crypto_mechanism( ctx,
                                              magmaGOST3413ePSK )) != ak_error_ok ) goto exit;
@@ -262,6 +263,7 @@ start_new_cached_connection(netsnmp_transport *t,
                                             encryption_interface, fd )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_client( ctx,
                                             remote_addr )) != ak_error_ok ) goto exit;
+	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
   	/* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
   	 if(( error =  ak_fiot_context_set_server_policy( ctx,
                                             magmaCTRplusGOST3413 )) != ak_error_ok ) goto exit;
@@ -661,7 +663,7 @@ static void _parse_blom_key(const char* token, char* line)
 
 
     ak_uint8 buf[32 * 256];
-    for (int i = 0; i< 16*256; ++i )
+    for (int i = 0; i< 32*256; ++i )
         if (sscanf(line + i*2, "%02hhx", &buf[i]) != 1) break;
 
     if ( ak_skey_context_set_key(blom_key, buf, 32 * 256, ak_true ) != ak_error_ok )
