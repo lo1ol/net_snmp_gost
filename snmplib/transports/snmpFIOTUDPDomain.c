@@ -95,6 +95,9 @@ netsnmp_feature_require(sockaddr_size);
 oid             netsnmpFIOTUDPDomain[] = { TRANSPORT_DOMAIN_FIOT_UDP_IP };
 size_t          netsnmpFIOTUDPDomain_len = OID_LENGTH(netsnmpFIOTUDPDomain);
 
+static struct skey blom_key_;
+static ak_skey blom_key = NULL;
+
 static netsnmp_tdomain fiotudpDomain;
 
 typedef struct fiot_cache_s {
@@ -196,20 +199,46 @@ start_new_cached_connection(netsnmp_transport *t,
    }
    
    if (we_are_client) {
-   	/* устанавливаем роль */
+         _netsnmpTLSBaseData *tlsbase = t->data;
+	 netsnmp_cert *id_cert, *peer_cert;
+
+	 if (tlsbase->our_identity) {
+         	DEBUGMSGTL(("sslctx_client", "looking for local id: %s\n", tlsbase->our_identity));
+         id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_MULTIPLE,
+                                    tlsbase->our_identity);
+         } else {
+         	DEBUGMSGTL(("sslctx_client", "looking for default local id: %s\n", tlsbase->our_identity));
+        	id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
+    	 }
+
+    	 if (!id_cert)
+        	return NULL;
+
+         if (tlsbase->their_identity)
+         	peer_cert = netsnmp_cert_find(NS_CERT_REMOTE_PEER,
+                                      NS_CERTKEY_MULTIPLE,
+                                      tlsbase->their_identity);
+    	 else
+         	peer_cert = netsnmp_cert_find(NS_CERT_REMOTE_PEER, NS_CERTKEY_DEFAULT,
+                                      NULL);
+	 if (!peer_cert)
+                return NULL;
+
+   	
+	/* устанавливаем роль */
   	 if(( error = ak_fiot_context_set_role( ctx, client_role )) != ak_error_ok ) goto exit;
   	/* устанавливаем идентификатор сервера */
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, server_role,
-                                                 "serverID", 8 )) != ak_error_ok ) goto exit;
+                                                 peer_cert->fingerprint, strlen(peer_cert->fingerprint) )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, client_role,
-                             "Client with long identifier", 27 )) != ak_error_ok ) goto exit;
+                             id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
 
   	/* устанавливаем сокет для внешнего (шифрующего) интерфейса */
   	 if(( error = ak_fiot_context_set_interface_descriptor( ctx,
                                     encryption_interface, t->sock )) != ak_error_ok ) goto exit;
   	/* устанавливаем идентификатор ключа аутентификации */
   	 if(( error = ak_fiot_context_set_psk_identifier( ctx,
-                                          ePSK_key, "12345", 5 )) != ak_error_ok ) goto exit;
+                                          ePSK_key, id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_curve( ctx,
                               tc26_gost3410_2012_256_paramsetA )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_initial_crypto_mechanism( ctx,
@@ -219,11 +248,15 @@ start_new_cached_connection(netsnmp_transport *t,
    	 
 	 printf( "echo-client: server authentication is Ok\n" );
    } else {
-   	/* устанавливаем роль */
+	 netsnmp_cert *id_cert;
+	 id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
+         if (!id_cert)
+   		return NULL;
+        /* устанавливаем роль */
    	 if(( error = ak_fiot_context_set_role( ctx, server_role )) != ak_error_ok ) goto exit;
   	/* устанавливаем идентификатор сервера */
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, server_role,
-                                                       "serverID", 8 )) != ak_error_ok ) goto exit;
+                                                       id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
   	/* устанавливаем сокет для внешнего (шифрующего) интерфейса */
   	 if(( error = ak_fiot_context_set_interface_descriptor( ctx,
                                             encryption_interface, fd )) != ak_error_ok ) goto exit;
@@ -618,6 +651,29 @@ netsnmp_fiotudp_create_ostring(const void *o, size_t o_len, int local)
         return NULL;
 }
 
+static void _parse_blom_key(const char* token, char* line)
+{
+    if (blom_key)
+        return; //TODO error
+    blom_key = &blom_key_;
+    if ( ak_skey_context_create(blom_key, 32 * 256, 8) != ak_error_ok )
+        return ; //TODO error
+
+
+    ak_uint8 buf[32 * 256];
+    for (int i = 0; i< 16*256; ++i )
+        if (sscanf(line + i*2, "%02hhx", &buf[i]) != 1) break;
+
+    if ( ak_skey_context_set_key(blom_key, buf, 32 * 256, ak_true ) != ak_error_ok )
+        return; //TODO error
+}
+
+static void _release_blom_key()
+{
+    ak_skey_context_destroy(blom_key);
+}
+
+
 void
 netsnmp_fiotudp_ctor(void)
 {
@@ -642,5 +698,9 @@ netsnmp_fiotudp_ctor(void)
     fiotudpDomain.f_create_from_tstring_new = netsnmp_fiotudp_create_tstring;
     fiotudpDomain.f_create_from_ostring     = netsnmp_fiotudp_create_ostring;
 
+    register_config_handler("snmpd", "blomKey", _parse_blom_key, _release_blom_key,
+                            NULL); 
+    
+    
     netsnmp_tdomain_register(&fiotudpDomain);
 }
