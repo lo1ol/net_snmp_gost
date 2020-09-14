@@ -531,66 +531,6 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
     return netsnmp_socketbase_close(t);
 }
 
-static char *
-netsnmp_fiotudp_fmtaddr(netsnmp_transport *t, const void *data, int len,
-                        const char *pfx,
-                        char *(*fmt_base_addr)(const char *pfx,
-                                               netsnmp_transport *t,
-                                               const void *data, int len))
-{
-    if (!data) {
-        data = t->data;
-        len = t->data_length;
-    }
-
-    switch (data ? len : 0) {
-    case sizeof(netsnmp_indexed_addr_pair):
-        return netsnmp_ipv4_fmtaddr(pfx, t, data, len);
-    case sizeof(netsnmp_tmStateReference): {
-        const netsnmp_tmStateReference *r = data;
-        const netsnmp_indexed_addr_pair *p = &r->addresses;
-        netsnmp_transport *bt = t->base_transport;
-
-        if (r->have_addresses) {
-            return fmt_base_addr("FIOTUDP", t, p, sizeof(*p));
-        } else if (bt && t->data_length == sizeof(_netsnmpTLSBaseData)) {
-            _netsnmpTLSBaseData *tlsdata = t->data;
-            netsnmp_indexed_addr_pair *tls_addr = tlsdata->addr;
-
-            return bt->f_fmtaddr(bt, tls_addr, sizeof(*tls_addr));
-        } else if (bt) {
-            return bt->f_fmtaddr(bt, t->data, t->data_length);
-        } else {
-            return strdup("FIOTUDP: unknown");
-        }
-    }
-    case sizeof(_netsnmpTLSBaseData): {
-        const _netsnmpTLSBaseData *b = data;
-        char *buf;
-
-        if (asprintf(&buf, "FIOTUDP: %s", b->addr_string) < 0)
-            buf = NULL;
-        return buf;
-    }
-    case 0:
-        return strdup("FIOTUDP: unknown");
-    default: {
-        char *buf;
-
-        if (asprintf(&buf, "FIOTUDP: len %d", len) < 0)
-            buf = NULL;
-        return buf;
-    }
-    }
-}
-
-static char *
-netsnmp_fiotudp4_fmtaddr(netsnmp_transport *t, const void *data, int len)
-{
-    return netsnmp_fiotudp_fmtaddr(t, data, len, "FIOTUDP",
-                                   netsnmp_ipv4_fmtaddr);
-}
-
 
 static netsnmp_transport *
 _transport_common(netsnmp_transport *t, int local)
@@ -636,8 +576,8 @@ _transport_common(netsnmp_transport *t, int local)
     t->f_config        = netsnmp_tlsbase_config;
     t->f_setup_session = netsnmp_tlsbase_session_init;
     t->f_accept        = NULL;
-    t->f_fmtaddr       = netsnmp_fiotudp4_fmtaddr;
-    t->f_get_taddr     = netsnmp_ipv4_get_taddr;
+    t->f_fmtaddr       = NULL;
+    t->f_get_taddr     = NULL;
 
     t->flags = NETSNMP_TRANSPORT_FLAG_TUNNELED;
 
