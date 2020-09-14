@@ -543,18 +543,6 @@ _transport_common(netsnmp_transport *t, int local)
     if (NULL == t)
         return NULL;
 
-    /** save base transport for clients; need in send/recv functions later */
-    if (t->data) { /* don't copy data */
-        tmp = t->data;
-        tmp_len = t->data_length;
-        t->data = NULL;
-    }
-    t->base_transport = netsnmp_transport_copy(t);
-
-    if (tmp) {
-        t->data = tmp;
-        t->data_length = tmp_len;
-    }
     if (NULL != t->data &&
         t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
         _netsnmpTLSBaseData *tlsdata =
