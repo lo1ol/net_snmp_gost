@@ -492,6 +492,12 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
   return rc;
 }
 
+void static free_libacrypt()
+{
+	ak_skey_context_destroy(blom_key);
+	blom_key = NULL;
+	ak_libakrypt_destroy();
+}
 
 static int
 netsnmp_fiotudp_close(netsnmp_transport *t)
@@ -520,14 +526,17 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
 
 
 
-    if (NULL == cachep)
-	    return netsnmp_socketbase_close(t);
+    if (NULL == cachep) {
+    	goto exit;
+    }
 
     if (ak_fiot_context_get_role(&cachep->fctx) == client_role)
     	ak_fiot_context_write_frame( &cachep->fctx, CLOSE_CONNECTION_MSG, strlen(CLOSE_CONNECTION_MSG),
                                              encrypted_frame, application_data );
 
     remove_and_free_fiot_cache(cachep);
+exit:
+    free_libacrypt();
     return netsnmp_socketbase_close(t);
 }
 
@@ -661,7 +670,9 @@ static void _parse_blom_key(const char* token, char* line)
 
 static void _release_blom_key()
 {
-    ak_skey_context_destroy(blom_key);
+    if (blom_key)
+    	ak_skey_context_destroy(blom_key);
+    blom_key = NULL;
 }
 
 static void _parse_elleptic_curve(const char* token, char* line)
