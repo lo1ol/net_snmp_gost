@@ -106,7 +106,7 @@ netsnmp_feature_child_of(cert_dump_names, netsnmp_unused);
 
 static u_char have_started_already = 0;
 
-static ENGINE *eng = NULL;
+static ENGINE *gost_engine = NULL;
 /*
  * This code merely does openssl initialization so that multilpe
  * modules are safe to call netsnmp_init_openssl() for bootstrapping
@@ -133,13 +133,13 @@ void netsnmp_init_openssl(void) {
     
    OPENSSL_add_all_algorithms_conf();
 
-   if (!(eng = ENGINE_by_id("gost"))) {
+   if (!(gost_engine = ENGINE_by_id("gost"))) {
        printf("Engine gost doesn’t exist");
        return;
    }
 
-   ENGINE_init(eng);
-   ENGINE_set_default(eng, ENGINE_METHOD_ALL);
+   ENGINE_init(gost_engine);
+   ENGINE_set_default(gost_engine, ENGINE_METHOD_ALL);
 }
 
 /** netsnmp_openssl_cert_get_name: get subject name field from cert
