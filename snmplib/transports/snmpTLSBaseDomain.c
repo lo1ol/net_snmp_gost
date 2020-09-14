@@ -864,6 +864,7 @@ void netsnmp_tlsbase_free_tlsdata(_netsnmpTLSBaseData *tlsbase) {
     SNMP_FREE(tlsbase->their_fingerprint);
     SNMP_FREE(tlsbase->their_hostname);
     SNMP_FREE(tlsbase->trust_cert);
+    SNMP_FREE(tlsbase->addr);
 
     /* free the base itself */
     SNMP_FREE(tlsbase);
