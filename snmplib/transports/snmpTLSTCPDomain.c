@@ -508,6 +508,11 @@ netsnmp_tlstcp_close(netsnmp_transport *t)
         SSL_shutdown(tlsdata->ssl);
     }
 
+    if (tlsdata->accept_bio) {
+    	BIO_free(tlsdata->accept_bio);
+	tlsdata->accept_bio = NULL;
+    }
+
     netsnmp_tlsbase_free_tlsdata(tlsdata);
 
     t->data = NULL;
