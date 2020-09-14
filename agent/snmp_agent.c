@@ -1246,6 +1246,16 @@ netsnmp_session *main_session = NULL;
  * value of -1 indicates an error.  
  */
 
+void free_netsnmp_session(netsnmp_session* s)
+{
+	if (s == NULL)
+		return;
+	if (s->securityName)
+		free(s->securityName);
+	s->securityNameLen=0;
+	SNMP_FREE(s);
+}
+
 int
 netsnmp_register_agent_nsap(netsnmp_transport *t)
 {
@@ -1286,7 +1296,7 @@ netsnmp_register_agent_nsap(netsnmp_transport *t)
        final call to actually open the transport */
     if (netsnmp_sess_config_transport(s->transport_configuration, t)
         != SNMPERR_SUCCESS) {
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         SNMP_FREE(n);
         return -1;
     }
@@ -1296,7 +1306,7 @@ netsnmp_register_agent_nsap(netsnmp_transport *t)
         t = t->f_open(t);
 
     if (NULL == t) {
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         SNMP_FREE(n);
         return -1;
     }
@@ -1306,14 +1316,14 @@ netsnmp_register_agent_nsap(netsnmp_transport *t)
     sp = snmp_add(s, t, netsnmp_agent_check_packet,
                   netsnmp_agent_check_parse);
     if (sp == NULL) {
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         SNMP_FREE(n);
         return -1;
     }
 
     isp = snmp_sess_pointer(sp);
     if (isp == NULL) {          /*  over-cautious  */
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         SNMP_FREE(n);
         return -1;
     }
@@ -1335,11 +1345,11 @@ netsnmp_register_agent_nsap(netsnmp_transport *t)
         n->handle = handle + 1;
         n->next = a;
         *prevNext = n;
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         DEBUGMSGTL(("netsnmp_register_agent_nsap", "handle %d\n", n->handle));
         return n->handle;
     } else {
-        SNMP_FREE(s);
+        free_netsnmp_session(s);
         SNMP_FREE(n);
         return -1;
     }
