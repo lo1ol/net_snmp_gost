@@ -98,6 +98,68 @@ size_t          netsnmpFIOTUDPDomain_len = OID_LENGTH(netsnmpFIOTUDPDomain);
 static struct skey blom_key_;
 static ak_skey blom_key = NULL;
 
+static elliptic_curve_t elliptic_curve_type = tc26_gost3410_2012_256_paramsetA;
+static crypto_mechanism_t crypto_mechanism_type = magmaGOST3413ePSK;
+static crypto_mechanism_t server_policy_type = magmaCTRplusGOST3413;
+
+static elliptic_curve_t string_to_elliptic_curve_t (char* str)
+{
+    if ( strcmp("tc26_gost3410_2012_256_paramsetA", str) == 0 )
+	    return tc26_gost3410_2012_256_paramsetA;
+    if ( strcmp("tc26_gost3410_2012_512_paramsetA", str) == 0 )
+	    return tc26_gost3410_2012_512_paramsetA;
+    if ( strcmp("tc26_gost3410_2012_512_paramsetB", str) == 0 )
+	    return tc26_gost3410_2012_512_paramsetB;
+    if ( strcmp("tc26_gost3410_2012_512_paramsetC", str) == 0 )
+	    return tc26_gost3410_2012_512_paramsetC;
+    if ( strcmp("rfc4357_gost3410_2001_paramsetA", str) == 0 )
+	    return rfc4357_gost3410_2001_paramsetA;
+    if ( strcmp("rfc4357_gost3410_2001_paramsetB", str) == 0 )
+	    return rfc4357_gost3410_2001_paramsetB;
+    if ( strcmp("rfc4357_gost3410_2001_paramsetC", str) == 0 )
+            return rfc4357_gost3410_2001_paramsetC;
+    return unknown_paramset;
+}
+
+
+static crypto_mechanism_t string_to_crypto_mechanism_t(char* str)
+{
+    
+    if ( strcmp("streebog256", str) == 0 )
+            return streebog256;
+    if ( strcmp("streebog512", str) == 0 )
+            return streebog512;
+    if ( strcmp("magmaGOST3413ePSK", str) == 0 )
+            return magmaGOST3413ePSK;
+    if ( strcmp("kuznechikGOST3413ePSK", str) == 0 )
+            return kuznechikGOST3413ePSK;
+    if ( strcmp("magmaGOST3413iPSK", str) == 0 )
+            return magmaGOST3413iPSK;
+    if ( strcmp("kuznechikGOST3413iPSK", str) == 0 )
+            return kuznechikGOST3413iPSK;
+    if ( strcmp("hmac256ePSK", str) == 0 )
+            return hmac256ePSK;
+    if ( strcmp("hmac512ePSK", str) == 0 )
+            return hmac512ePSK;
+    if ( strcmp("hmac256iPSK", str) == 0 )
+            return hmac256iPSK;
+    if ( strcmp("hmac512iPSK", str) == 0 )
+            return hmac512iPSK;
+    if ( strcmp("magmaCTRplusHMAC256", str) == 0 )
+            return magmaCTRplusHMAC256;
+    if ( strcmp("magmaCTRplusGOST3413", str) == 0 )
+            return magmaCTRplusGOST3413;
+    if ( strcmp("kuznechikCTRplusHMAC256", str) == 0 )
+            return kuznechikCTRplusHMAC256;
+    if ( strcmp("kuznechikCTRplusGOST3413", str) == 0 )
+            return kuznechikCTRplusGOST3413;
+    if ( strcmp("magmaAEAD", str) == 0 )
+            return magmaAEAD;
+    if ( strcmp("kuznechikAEAD", str) == 0 )
+            return kuznechikAEAD;
+
+    return not_set_mechanism;
+}
 static netsnmp_tdomain fiotudpDomain;
 
 typedef struct fiot_cache_s {
@@ -241,13 +303,9 @@ start_new_cached_connection(netsnmp_transport *t,
                                           ePSK_key, id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
 	 if(( error = ak_fiot_context_set_curve( ctx,
-                              tc26_gost3410_2012_256_paramsetA )) != ak_error_ok ) goto exit;
+                              elliptic_curve_type )) != ak_error_ok ) goto exit;
   	 if(( error = ak_fiot_context_set_initial_crypto_mechanism( ctx,
-                                             magmaGOST3413ePSK )) != ak_error_ok ) goto exit;
-  	/* здесь реализация протокола */
-  	 if(( error = ak_fiot_context_keys_generation_protocol( ctx )) != ak_error_ok ) goto exit;
-   	 
-	 printf( "echo-client: server authentication is Ok\n" );
+                                             crypto_mechanism_type )) != ak_error_ok ) goto exit;
    } else {
 	 netsnmp_cert *id_cert;
 	 id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
@@ -266,12 +324,10 @@ start_new_cached_connection(netsnmp_transport *t,
 	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
   	/* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
   	 if(( error =  ak_fiot_context_set_server_policy( ctx,
-                                            magmaCTRplusGOST3413 )) != ak_error_ok ) goto exit;
-  	/* теперь выполняем протокол */
-  	 if(( error = ak_fiot_context_keys_generation_protocol( ctx )) != ak_error_ok ) goto exit;
-  	 
-	 printf( "echo-server: client authentication is Ok\n" );
+                                            server_policy_type )) != ak_error_ok ) goto exit;
    }
+  /* теперь выполняем протокол */
+    if(( error = ak_fiot_context_keys_generation_protocol( ctx )) != ak_error_ok ) goto exit;
     
 
 
@@ -675,6 +731,23 @@ static void _release_blom_key()
     ak_skey_context_destroy(blom_key);
 }
 
+static void _parse_elleptic_curve(const char* token, char* line)
+{
+	elliptic_curve_type = string_to_elliptic_curve_t(line);
+}
+
+static void _parse_crypto_mechanism(const char* token, char* line)
+{
+	crypto_mechanism_type = string_to_crypto_mechanism_t(line);
+}
+
+static void _parse_server_policy(const char* token, char* line)
+{
+        server_policy_type = string_to_crypto_mechanism_t(line);
+}
+
+
+
 
 void
 netsnmp_fiotudp_ctor(void)
@@ -700,9 +773,10 @@ netsnmp_fiotudp_ctor(void)
     fiotudpDomain.f_create_from_tstring_new = netsnmp_fiotudp_create_tstring;
     fiotudpDomain.f_create_from_ostring     = netsnmp_fiotudp_create_ostring;
 
-    register_config_handler("snmpd", "blomKey", _parse_blom_key, _release_blom_key,
-                            NULL); 
-    
-    
+    register_config_handler("snmpd", "blomKey", _parse_blom_key, _release_blom_key, NULL); 
+    register_config_handler("snmpd", "ellipticCurve", _parse_elleptic_curve, NULL, NULL);
+    register_config_handler("snmpd", "cryptoMechanism", _parse_crypto_mechanism, NULL, NULL);
+    register_config_handler("snmpd", "serverPolicy", _parse_crypto_mechanism, NULL, NULL);
+
     netsnmp_tdomain_register(&fiotudpDomain);
 }
