@@ -200,6 +200,7 @@ static void free_bio_cache(bio_cache *cachep)
     DEBUGMSGTL(("9:dtlsudp:bio_cache", "releasing %p\n", cachep));
     SNMP_FREE(cachep->write_cache);
     netsnmp_tlsbase_free_tlsdata(cachep->tlsdata);
+    cachep->tlsdata = NULL;
 }
 
 static void remove_and_free_bio_cache(bio_cache *cachep)

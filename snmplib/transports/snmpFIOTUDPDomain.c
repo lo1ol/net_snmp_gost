@@ -508,12 +508,17 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
 
         if (tlsbase->addr)
             cachep = find_fiot_cache(&tlsbase->addr->remote_addr);
+	netsnmp_tlsbase_free_tlsdata(tlsbase);
+    	t->data = NULL;
     }
 
     if (NULL != t->data && t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
     	netsnmp_indexed_addr_pair* addr_pair = t->data;
-	    cachep = find_fiot_cache(&addr_pair->remote_addr);
+	cachep = find_fiot_cache(&addr_pair->remote_addr);
+	SNMP_FREE(t->data);
     }
+
+
 
     if (NULL == cachep)
 	    return netsnmp_socketbase_close(t);
