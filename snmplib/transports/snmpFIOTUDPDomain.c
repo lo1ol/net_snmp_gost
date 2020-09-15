@@ -432,23 +432,11 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
    ctx = &cachep->fctx;
 
-   size_t length;
-   message_t mtype = undefined_message;
    
-   ak_uint8 *data = ak_fiot_context_read_frame( ctx, &length, &mtype );
-   if( data != NULL ) {
-     printf( "echo-server: recived length %lu\n", length );
-   }
 
-   if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
-	   remove_and_free_fiot_cache(cachep);	   
-	   return -2;
-   }
+   *olength=sizeof(netsnmp_tmStateReference);
+   *opaque = calloc(1, sizeof(netsnmp_tmStateReference));
 
-   *olength=length;
-   *opaque = malloc(sizeof(netsnmp_tmStateReference));
-   memcpy(*opaque, data, length);
-   
    netsnmp_tmStateReference* tmStateRef = *opaque;
 
    tmStateRef->addresses = addr_pair;
@@ -458,13 +446,16 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
            netsnmpFIOTUDPDomain, sizeof(netsnmpFIOTUDPDomain[0]) *
            netsnmpFIOTUDPDomain_len);
    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
-
+   
+   char* secName = NULL;
    if (!tlsdata || t->data_length != sizeof(_netsnmpTLSBaseData) || !tlsdata->securityName) {
-	   char* secName = netsnmp_extract_security_name(cachep);
-	   
-	   strlcpy(tmStateRef->securityName, secName, sizeof(tmStateRef->securityName));
-	   tmStateRef->securityNameLen = strlen(secName);
+	   secName = netsnmp_extract_security_name(cachep);
+   } else {
+	   secName = tlsdata->securityName;
    }
+
+   strlcpy(tmStateRef->securityName, secName, sizeof(tmStateRef->securityName));
+   tmStateRef->securityNameLen = strlen(secName);
 
     /* RFC5953 Section 5.1.2 step 2: tmSessionID */
     /* use our TLSData pointer as the session ID */
@@ -472,9 +463,18 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    memcpy(tmStateRef->sessionID, cachep, sizeof(fiot_cache *));
 
 
-  data = ak_fiot_context_read_frame( ctx, &length, &mtype );
+   size_t length;
+   message_t mtype = undefined_message;
+   ak_uint8* data = ak_fiot_context_read_frame( ctx, &length, &mtype );
    if( data != NULL ) {
      printf( "echo-server: recived length %lu\n", length );
+   }
+
+   tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
+
+   if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
+           remove_and_free_fiot_cache(cachep);
+           return -2;
    }
 
    memcpy(buf, data, length);
@@ -543,13 +543,6 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
         tlsdata->securityName = strdup(tmStateRef->securityName);
     }
 
-   if(( error = ak_fiot_context_write_frame( ctx, *opaque, *olength,
-                                             encrypted_frame, application_data )) != ak_error_ok ) {
-     ak_error_message( error, __func__, "write error" );
-   } else {
-           printf("echo-client: send %d bytes\n", *olength);
-           rc = size;
-   }
 
    if(( error = ak_fiot_context_write_frame( ctx, buf, size,
                                              encrypted_frame, application_data )) != ak_error_ok ) {
