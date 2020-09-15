@@ -261,6 +261,8 @@ tsm_rgenerate_out_msg(struct snmp_secmod_outgoing_params *parms)
                 prefix = "dtls:";
             else if (strncmp("tls:",parms->session->peername,4) == 0)
                 prefix = "tls:";
+	    else if (strncmp("tls:",parms->session->peername,4) == 0)
+                prefix = "fiot:";
             else {
                 /* 4.2, step 2: If the prefix lookup fails for any
                    reason, then the snmpTsmUnknownPrefixes counter is

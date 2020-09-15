@@ -454,7 +454,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
    
    char* secName = NULL;
-   if (tlsdata && t->data_length == sizeof(_netsnmpTLSBaseData) && tlsdata->securityName) {
+   if (tlsdata && tlsdata->securityName) {
 	   secName = tlsdata->securityName;
    } else {
 	   secName = netsnmp_extract_security_name(cachep);
