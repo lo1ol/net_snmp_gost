@@ -362,6 +362,51 @@ find_or_create_fiot_cache(netsnmp_transport *t,
 
 
 
+char* netsnmp_extract_security_name(fiot_cache* cachep) {
+    netsnmp_container  *chain_maps;
+    netsnmp_cert_map   *cert_map, *peer_cert;
+    netsnmp_iterator  *itr;
+    char *fp;
+    char* securityName = NULL;
+    int rc;
+
+    chain_maps = netsnmp_cert_map_container();
+    
+    fp = malloc(cachep->fctx.epsk_id.size + 1);
+    memcpy(fp, cachep->fctx.epsk_id.data, cachep->fctx.epsk_id.size);
+    fp[cachep->fctx.epsk_id.size] = 0;
+    peer_cert = netsnmp_cert_map_alloc(fp, NULL);
+    free(fp);
+
+    /*
+     * map fingerprints to mapping entries
+     */
+    rc = netsnmp_cert_get_secname_maps(chain_maps);
+    if ((-1 == rc) || (CONTAINER_SIZE(chain_maps) == 0)) {
+        netsnmp_cert_map_container_free(chain_maps);
+        return NULL;
+    }
+
+    /*
+     * change container to sorted (by clearing unsorted option), then
+     * iterate over it until we find a map that returns a secname.
+     */
+    CONTAINER_SET_OPTIONS(chain_maps, 0, rc);
+    itr = CONTAINER_ITERATOR(chain_maps);
+    if (NULL == itr) {
+        snmp_log(LOG_ERR, "could not get iterator for secname fingerprints\n");
+        netsnmp_cert_map_container_free(chain_maps);
+        return NULL;
+    }
+    peer_cert = cert_map = ITERATOR_FIRST(itr);
+    for( ; !securityName && cert_map; cert_map = ITERATOR_NEXT(itr))
+        securityName =
+            netsnmp_openssl_extract_secname(cert_map, peer_cert);
+    ITERATOR_RELEASE(itr);
+
+    return securityName;
+}
+
 
 static int
 netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
@@ -371,7 +416,8 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    netsnmp_indexed_addr_pair addr_pair;
    struct sockaddr_in cl_addr;
    char msg;
-   int error = ak_error_ok, fd = -1;
+   _netsnmpTLSBaseData* tlsdata = t->data;
+   int error = ak_error_ok;
    socklen_t opt = sizeof( cl_addr );
    ak_fiot ctx;
    
@@ -407,6 +453,24 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 
    tmStateRef->addresses = addr_pair;
    tmStateRef->have_addresses = 1;
+   
+   memcpy(tmStateRef->transportDomain,
+           netsnmpFIOTUDPDomain, sizeof(netsnmpFIOTUDPDomain[0]) *
+           netsnmpFIOTUDPDomain_len);
+   tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
+
+   if (!tlsdata || t->data_length != sizeof(_netsnmpTLSBaseData) || !tlsdata->securityName) {
+	   char* secName = netsnmp_extract_security_name(cachep);
+	   
+	   strlcpy(tmStateRef->securityName, secName, sizeof(tmStateRef->securityName));
+	   tmStateRef->securityNameLen = strlen(secName);
+   }
+
+    /* RFC5953 Section 5.1.2 step 2: tmSessionID */
+    /* use our TLSData pointer as the session ID */
+   
+   memcpy(tmStateRef->sessionID, cachep, sizeof(fiot_cache *));
+
 
   data = ak_fiot_context_read_frame( ctx, &length, &mtype );
    if( data != NULL ) {
@@ -463,6 +527,7 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
     int rc = -1;
     ak_fiot ctx;
     netsnmp_indexed_addr_pair* addr_pair;
+    _netsnmpTLSBaseData* tlsdata = t->data;
 
     addr_pair = _extract_addr_pair(t, opaque ? *opaque : NULL, olength ? *olength : 0); 
     netsnmp_tmStateReference* tmStateRef = *opaque;
@@ -472,6 +537,11 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
 
     fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_CLIENT);
     ctx = &cachep->fctx;
+
+    if (tlsdata && !tlsdata->securityName && tmStateRef &&
+        tmStateRef->securityNameLen > 0) {
+        tlsdata->securityName = strdup(tmStateRef->securityName);
+    }
 
    if(( error = ak_fiot_context_write_frame( ctx, *opaque, *olength,
                                              encrypted_frame, application_data )) != ak_error_ok ) {
