@@ -167,6 +167,7 @@ typedef struct fiot_cache_s {
    netsnmp_sockaddr_storage sas;
    struct fiot fctx;
    _netsnmpTLSBaseData* tlsdata;
+   netsnmp_tmStateReference* prev_opaque;
 } fiot_cache;
 
 static fiot_cache *fiot_cache_list = NULL;
@@ -220,6 +221,7 @@ static void free_fiot_cache(fiot_cache *cachep)
 {
     ak_fiot_context_destroy( &cachep->fctx );
     netsnmp_tlsbase_free_tlsdata(cachep->tlsdata);
+    SNMP_FREE(cachep->prev_opaque);
     free(cachep);
 }
 
@@ -346,6 +348,7 @@ start_new_cached_connection(netsnmp_transport *t,
     cachep->next = fiot_cache_list;
     cachep->sas.sin = remote_addr;
     cachep->tlsdata = tlsbase;
+    cachep->prev_opaque = NULL;
     fiot_cache_list = cachep;
 
     return cachep;
@@ -460,9 +463,12 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    *opaque = calloc(1, sizeof(netsnmp_tmStateReference));
 
    if (!*opaque)
-	   goto error_exit_free_cache;
+	   goto error_exit;
+
+   SNMP_FREE(cachep->prev_opaque);
 
    netsnmp_tmStateReference* tmStateRef = *opaque;
+   cachep->prev_opaque = tmStateRef;
 
    tmStateRef->addresses = addr_pair;
    tmStateRef->have_addresses = 1;
@@ -506,7 +512,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 
    if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
            /* It's not an actual error */
-	   rc = -2;
+	   rc = 0;
            goto error_exit;
    }
 
@@ -516,10 +522,9 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    return rc;
 
 error_exit:
-   SNMP_FREE(*opaque);
-
-error_exit_free_cache:
    remove_and_free_fiot_cache(cachep);
+   *opaque = NULL;
+   *olength = 0;
    return rc;
 }
 
@@ -586,7 +591,7 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
 	    return rc;
 
     ctx = &cachep->fctx;
-
+    
     if (tlsdata && !tlsdata->securityName &&
         tmStateRef->securityNameLen > 0) {
         tlsdata->securityName = strdup(tmStateRef->securityName);
