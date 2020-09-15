@@ -357,7 +357,7 @@ error_exit:
 
 static fiot_cache *
 find_or_create_fiot_cache(netsnmp_transport *t,
-                         netsnmp_sockaddr_storage *from_addr,
+                         const netsnmp_sockaddr_storage *from_addr,
                          int we_are_client)
 {
     fiot_cache *cachep = find_fiot_cache(from_addr);
@@ -524,7 +524,7 @@ error_exit_free_cache:
 }
 
 
-static netsnmp_indexed_addr_pair *
+static const netsnmp_indexed_addr_pair *
 _extract_addr_pair(netsnmp_transport *t, const void *opaque, int olen)
 {
     if (opaque) {
@@ -566,7 +566,7 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
     int error = ak_error_ok;
     int rc = -1;
     ak_fiot ctx;
-    netsnmp_indexed_addr_pair* addr_pair;
+    const netsnmp_indexed_addr_pair* addr_pair;
     _netsnmpTLSBaseData* tlsdata = t->data;
     netsnmp_tmStateReference* tmStateRef;
     fiot_cache* cachep;
@@ -600,7 +600,7 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
 	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
     }
 
-    if(( error = ak_fiot_context_write_frame( ctx, buf, size,
+    if(( error = ak_fiot_context_write_frame( ctx, (void*) buf, size,
                                              ftype, application_data )) != ak_error_ok ) {
      	ak_error_message( error, __func__, "write error" );
 	goto error_exit;
