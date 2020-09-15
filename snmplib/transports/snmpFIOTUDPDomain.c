@@ -432,7 +432,6 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
    ctx = &cachep->fctx;
 
-   
 
    *olength=sizeof(netsnmp_tmStateReference);
    *opaque = calloc(1, sizeof(netsnmp_tmStateReference));
@@ -465,12 +464,17 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 
    size_t length;
    message_t mtype = undefined_message;
-   ak_uint8* data = ak_fiot_context_read_frame( ctx, &length, &mtype );
+   frame_type_t ftype;
+   ak_uint8* data = ak_fiot_context_read_frame( ctx, &length, &mtype, &ftype );
    if( data != NULL ) {
      printf( "echo-server: recived length %lu\n", length );
    }
 
-   tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
+   if (ftype = encrypted_frame) {
+   	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
+   } else {
+   	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
+   }
 
    if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
            remove_and_free_fiot_cache(cachep);
@@ -533,7 +537,6 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
     netsnmp_tmStateReference* tmStateRef = *opaque;
     tmStateRef->addresses = *addr_pair;
     tmStateRef->have_addresses = 1;
-    tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
 
     fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_CLIENT);
     ctx = &cachep->fctx;
@@ -543,13 +546,19 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
         tlsdata->securityName = strdup(tmStateRef->securityName);
     }
 
+    frame_type_t ftype;
+    if (tmStateRef->transportSecurityLevel == SNMP_SEC_LEVEL_AUTHPRIV) {
+    	ftype = encrypted_frame;
+    } else {
+    	ftype = plain_frame;
+    }
 
-   if(( error = ak_fiot_context_write_frame( ctx, buf, size,
-                                             encrypted_frame, application_data )) != ak_error_ok ) {
-     ak_error_message( error, __func__, "write error" );
-   } else {
-	   printf("echo-client: send %d bytes\n", size);
-   	   rc = size;
+    if(( error = ak_fiot_context_write_frame( ctx, buf, size,
+                                             ftype, application_data )) != ak_error_ok ) {
+     	ak_error_message( error, __func__, "write error" );
+    } else {
+	printf("echo-client: send %d bytes\n", size);
+   	rc = size;
    }
 
   return rc;
