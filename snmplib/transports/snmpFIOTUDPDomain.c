@@ -473,7 +473,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
    
    char* secName = NULL;
-   if (tlsdata && tlsdata->securityName) {
+   if (tlsdata->securityName) {
 	   secName = tlsdata->securityName;
    } else {
 	   secName = netsnmp_extract_security_name(cachep);
@@ -506,7 +506,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 
    if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
            /* It's not an actual error */
-	   rc -2;
+	   rc = -2;
            goto error_exit;
    }
 
@@ -574,7 +574,8 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
     if (!*opaque)
 	    return rc;
 
-    addr_pair = _extract_addr_pair(t, *opaque, *olength); 
+    if (!(addr_pair = _extract_addr_pair(t, *opaque, *olength)))
+	    return rc;
     
     tmStateRef = *opaque;
     tmStateRef->addresses = *addr_pair;
