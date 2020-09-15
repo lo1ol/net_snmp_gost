@@ -389,8 +389,7 @@ char* netsnmp_extract_security_name(fiot_cache* cachep) {
      */
     rc = netsnmp_cert_get_secname_maps(chain_maps);
     if ((-1 == rc) || (CONTAINER_SIZE(chain_maps) == 0)) {
-        netsnmp_cert_map_container_free(chain_maps);
-        return NULL;
+        goto exit;
     }
 
     /*
@@ -401,15 +400,16 @@ char* netsnmp_extract_security_name(fiot_cache* cachep) {
     itr = CONTAINER_ITERATOR(chain_maps);
     if (NULL == itr) {
         snmp_log(LOG_ERR, "could not get iterator for secname fingerprints\n");
-        netsnmp_cert_map_container_free(chain_maps);
-        return NULL;
+        goto exit;
     }
-    peer_cert = cert_map = ITERATOR_FIRST(itr);
+    cert_map = ITERATOR_FIRST(itr);
     for( ; !securityName && cert_map; cert_map = ITERATOR_NEXT(itr))
         securityName =
             netsnmp_openssl_extract_secname(cert_map, peer_cert);
     ITERATOR_RELEASE(itr);
 
+exit:
+    netsnmp_cert_map_free(peer_cert);
     return securityName;
 }
 
