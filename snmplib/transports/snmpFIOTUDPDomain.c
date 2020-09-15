@@ -424,6 +424,7 @@ char* netsnmp_extract_security_name(fiot_cache* cachep) {
     ITERATOR_RELEASE(itr);
 
 exit:
+    netsnmp_cert_map_free(cert_map);
     netsnmp_cert_map_free(peer_cert);
     return securityName;
 }
