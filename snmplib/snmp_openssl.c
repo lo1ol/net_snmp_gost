@@ -532,7 +532,9 @@ netsnmp_openssl_cert_dump_extensions(X509 *ocert)
 static int _htmap[NS_HASH_MAX + 1] = {
     0, NID_md5WithRSAEncryption, NID_sha1WithRSAEncryption,
     NID_sha224WithRSAEncryption, NID_sha256WithRSAEncryption,
-    NID_sha384WithRSAEncryption, NID_sha512WithRSAEncryption };
+    NID_sha384WithRSAEncryption, NID_sha512WithRSAEncryption,
+    NID_id_tc26_signwithdigest_gost3410_2012_256, NID_id_tc26_signwithdigest_gost3410_2012_512
+};
 
 int
 _nid2ht(int nid)
@@ -621,6 +623,15 @@ netsnmp_openssl_cert_get_fingerprint(X509 *ocert, int alg)
             digest = EVP_sha512();
             break;
 #endif
+
+	case NS_HASH_GOST12_256:
+           digest = EVP_get_digestbynid(NID_id_GostR3411_2012_256);
+           break;
+
+        case NS_HASH_GOST12_512:
+           digest = EVP_get_digestbynid(NID_id_GostR3411_2012_512);
+           break;
+
 
         default:
             snmp_log(LOG_ERR, "unknown hash algorithm %d\n", alg);

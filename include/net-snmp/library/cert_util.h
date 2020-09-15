@@ -89,7 +89,9 @@ extern "C" {
 #define NS_HASH_SHA256      4
 #define NS_HASH_SHA384      5
 #define NS_HASH_SHA512      6
-#define NS_HASH_MAX         NS_HASH_SHA512
+#define NS_HASH_GOST12_256  7
+#define NS_HASH_GOST12_512  8
+#define NS_HASH_MAX         NS_HASH_GOST12_512
 
 /** SNMP-TLS-TM-MIB */
 #define SNMPTLSFINGERPRINT_MAX_LEN   255
