@@ -166,6 +166,7 @@ typedef struct fiot_cache_s {
    struct fiot_cache_s *next;
    netsnmp_sockaddr_storage sas;
    struct fiot fctx;
+   _netsnmpTLSBaseData* tlsdata;
 } fiot_cache;
 
 static fiot_cache *fiot_cache_list = NULL;
@@ -219,6 +220,7 @@ static void free_fiot_cache(fiot_cache *cachep)
 {
     DEBUGMSGTL(("9:fiotudp:fiot_cache", "releasing %p\n", cachep));
     ak_fiot_context_destroy( &cachep->fctx );
+    netsnmp_tlsbase_free_tlsdata(cachep->tlsdata);
     free(cachep);
 }
 
@@ -260,9 +262,11 @@ start_new_cached_connection(netsnmp_transport *t,
         return NULL;
    }
    
+   _netsnmpTLSBaseData *tlsbase;
    if (we_are_client) {
-         _netsnmpTLSBaseData *tlsbase = t->data;
+	 tlsbase = t->data;
 	 netsnmp_cert *id_cert, *peer_cert;
+	 
 
 	 if (tlsbase->our_identity) {
          	DEBUGMSGTL(("sslctx_client", "looking for local id: %s\n", tlsbase->our_identity));
@@ -307,6 +311,7 @@ start_new_cached_connection(netsnmp_transport *t,
   	 if(( error = ak_fiot_context_set_initial_crypto_mechanism( ctx,
                                              crypto_mechanism_type )) != ak_error_ok ) goto exit;
    } else {
+	 tlsbase = calloc(1, sizeof(_netsnmpTLSBaseData));
 	 netsnmp_cert *id_cert;
 	 id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
          if (!id_cert)
@@ -334,6 +339,7 @@ start_new_cached_connection(netsnmp_transport *t,
     DEBUGMSGTL(("fiotudp", "starting a new connection\n"));
     cachep->next = fiot_cache_list;
     cachep->sas.sin = remote_addr;
+    cachep->tlsdata = tlsbase;
     fiot_cache_list = cachep;
 
     exit:
@@ -416,7 +422,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    netsnmp_indexed_addr_pair addr_pair;
    struct sockaddr_in cl_addr;
    char msg;
-   _netsnmpTLSBaseData* tlsdata = t->data;
+   _netsnmpTLSBaseData* tlsdata;
    int error = ak_error_ok;
    socklen_t opt = sizeof( cl_addr );
    ak_fiot ctx;
@@ -431,6 +437,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 	
    fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
    ctx = &cachep->fctx;
+   tlsdata = cachep->tlsdata;
 
 
    *olength=sizeof(netsnmp_tmStateReference);
@@ -447,10 +454,11 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    tmStateRef->transportDomainLen = netsnmpFIOTUDPDomain_len;
    
    char* secName = NULL;
-   if (!tlsdata || t->data_length != sizeof(_netsnmpTLSBaseData) || !tlsdata->securityName) {
-	   secName = netsnmp_extract_security_name(cachep);
-   } else {
+   if (tlsdata && t->data_length == sizeof(_netsnmpTLSBaseData) && tlsdata->securityName) {
 	   secName = tlsdata->securityName;
+   } else {
+	   secName = netsnmp_extract_security_name(cachep);
+	   tlsdata->securityName = secName;
    }
 
    strlcpy(tmStateRef->securityName, secName, sizeof(tmStateRef->securityName));
@@ -586,7 +594,6 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
 
         if (tlsbase->addr)
             cachep = find_fiot_cache(&tlsbase->addr->remote_addr);
-	netsnmp_tlsbase_free_tlsdata(tlsbase);
     	t->data = NULL;
     }
 
