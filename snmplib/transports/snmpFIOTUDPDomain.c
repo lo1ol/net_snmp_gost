@@ -191,7 +191,7 @@ static fiot_cache *find_fiot_cache(const netsnmp_sockaddr_storage *from_addr)
     return cachep;
 }
 
-static int remove_fiot_cache(fiot_cache *thiscache)
+static void remove_fiot_cache(fiot_cache *thiscache)
 {
     fiot_cache *cachep = NULL, *prevcache = NULL;
 
@@ -207,18 +207,17 @@ static int remove_fiot_cache(fiot_cache *thiscache)
                 prevcache->next = thiscache->next;
             }
 
-            return SNMPERR_SUCCESS;
+            return;
         }
         prevcache = cachep;
         cachep = cachep->next;
     }
-    return SNMPERR_GENERR;
+    return;
 }
 
 /* frees the contents of a fiot_cache */
 static void free_fiot_cache(fiot_cache *cachep)
 {
-    DEBUGMSGTL(("9:fiotudp:fiot_cache", "releasing %p\n", cachep));
     ak_fiot_context_destroy( &cachep->fctx );
     netsnmp_tlsbase_free_tlsdata(cachep->tlsdata);
     free(cachep);
@@ -226,7 +225,7 @@ static void free_fiot_cache(fiot_cache *cachep)
 
 static void remove_and_free_fiot_cache(fiot_cache *cachep)
 {
-    /** no debug, remove_fiot_cache does it */
+    DEBUGMSGTL(("9:fiotudp:fiot_cache", "releasing %p\n", cachep));
     remove_fiot_cache(cachep);
     free_fiot_cache(cachep);
 }
@@ -236,115 +235,124 @@ start_new_cached_connection(netsnmp_transport *t,
                             struct sockaddr_in remote_addr,
                             int we_are_client)
 {
-    fiot_cache *cachep = NULL;
-
-    DEBUGTRACETOK("9:fiotudp");
-
-    cachep = malloc(sizeof(fiot_cache));
-    if (!cachep)
-        return NULL;
-
+   fiot_cache *cachep = NULL;
    int rc;
-    struct sockaddr_in cl_addr;
-   ak_fiot ctx = &cachep->fctx;
+   struct sockaddr_in cl_addr;
+   ak_fiot ctx;
    char msg; 
    int error = ak_error_ok, fd = -1;
    socklen_t opt = sizeof( cl_addr );
    fd=t->sock;
-   
-  /* часть вторая: аутентификация клиента и выполнение протокола выработки общих ключей */
 
+   DEBUGMSGTL(("fiotudp", "starting a new connection\n"));
+
+   cachep = malloc(sizeof(fiot_cache));
+   if (!cachep)
+       return NULL;
+
+   ctx = &cachep->fctx;
 
   /* устанавливаем криптографические параметры взаимодействия и запускаем протокол выработки ключей */
   /* создаем контекст защищенного соединения */
    if(( error = ak_fiot_context_create( ctx )) != ak_error_ok ) {
         ak_error_message( error, __func__, "incorrect fiot context creation" );
-        return NULL;
+	goto error_exit;
    }
    
    _netsnmpTLSBaseData *tlsbase;
    if (we_are_client) {
-	 tlsbase = t->data;
 	 netsnmp_cert *id_cert, *peer_cert;
-	 
+	 tlsbase = t->data;
 
+	 if (!tlsbase)
+		 goto error_exit;
+	 
 	 if (tlsbase->our_identity) {
-         	DEBUGMSGTL(("sslctx_client", "looking for local id: %s\n", tlsbase->our_identity));
+         	DEBUGMSGTL(("fiot_client", "looking for local id: %s\n", tlsbase->our_identity));
          id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_MULTIPLE,
                                     tlsbase->our_identity);
          } else {
-         	DEBUGMSGTL(("sslctx_client", "looking for default local id: %s\n", tlsbase->our_identity));
+         	DEBUGMSGTL(("fiot_client", "looking for default local\n"));
         	id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
     	 }
 
     	 if (!id_cert)
-        	return NULL;
+        	goto error_exit;
 
-         if (tlsbase->their_identity)
+         if (tlsbase->their_identity) {
+                DEBUGMSGTL(("fiot_client", "looking for remote id: %s\n", tlsbase->their_identity));
          	peer_cert = netsnmp_cert_find(NS_CERT_REMOTE_PEER,
                                       NS_CERTKEY_MULTIPLE,
                                       tlsbase->their_identity);
-    	 else
+	 } else {
+		DEBUGMSGTL(("fiot_client", "looking for default remote: \n"));
          	peer_cert = netsnmp_cert_find(NS_CERT_REMOTE_PEER, NS_CERTKEY_DEFAULT,
                                       NULL);
+	 }
 	 if (!peer_cert)
-                return NULL;
+                goto error_exit;
 
    	
 	/* устанавливаем роль */
-  	 if(( error = ak_fiot_context_set_role( ctx, client_role )) != ak_error_ok ) goto exit;
+  	 if(( error = ak_fiot_context_set_role( ctx, client_role )) != ak_error_ok ) goto error_exit;
   	/* устанавливаем идентификатор сервера */
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, server_role,
-                                                 peer_cert->fingerprint, strlen(peer_cert->fingerprint) )) != ak_error_ok ) goto exit;
+                                                 peer_cert->fingerprint, strlen(peer_cert->fingerprint) )) != ak_error_ok ) goto error_exit;
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, client_role,
-                             id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
+                             id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto error_exit;
 
   	/* устанавливаем сокет для внешнего (шифрующего) интерфейса */
   	 if(( error = ak_fiot_context_set_interface_descriptor( ctx,
-                                    encryption_interface, t->sock )) != ak_error_ok ) goto exit;
+                                    encryption_interface, t->sock )) != ak_error_ok ) goto error_exit;
   	/* устанавливаем идентификатор ключа аутентификации */
   	 if(( error = ak_fiot_context_set_psk_identifier( ctx,
-                                          ePSK_key, id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
-  	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
+                                          ePSK_key, id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto error_exit;
+  	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto error_exit;
 	 if(( error = ak_fiot_context_set_curve( ctx,
-                              elliptic_curve_type )) != ak_error_ok ) goto exit;
+                              elliptic_curve_type )) != ak_error_ok ) goto error_exit;
   	 if(( error = ak_fiot_context_set_initial_crypto_mechanism( ctx,
-                                             crypto_mechanism_type )) != ak_error_ok ) goto exit;
+                                             crypto_mechanism_type )) != ak_error_ok ) goto error_exit;
    } else {
-	 tlsbase = calloc(1, sizeof(_netsnmpTLSBaseData));
 	 netsnmp_cert *id_cert;
+	 
+	 tlsbase = calloc(1, sizeof(_netsnmpTLSBaseData));
+	 if (!tlsbase)
+		 goto error_exit;
+	 DEBUGMSGTL(("fiot_server", "looking for default local\n"));
+	 
 	 id_cert = netsnmp_cert_find(NS_CERT_IDENTITY, NS_CERTKEY_DEFAULT, NULL);
          if (!id_cert)
-   		return NULL;
+   		goto error_exit;
         /* устанавливаем роль */
-   	 if(( error = ak_fiot_context_set_role( ctx, server_role )) != ak_error_ok ) goto exit;
+   	 if(( error = ak_fiot_context_set_role( ctx, server_role )) != ak_error_ok ) goto error_exit;
   	/* устанавливаем идентификатор сервера */
   	 if(( error = ak_fiot_context_set_user_identifier( ctx, server_role,
-                                                       id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto exit;
+                                                       id_cert->fingerprint, strlen(id_cert->fingerprint) )) != ak_error_ok ) goto error_exit;
   	/* устанавливаем сокет для внешнего (шифрующего) интерфейса */
   	 if(( error = ak_fiot_context_set_interface_descriptor( ctx,
-                                            encryption_interface, fd )) != ak_error_ok ) goto exit;
+                                            encryption_interface, fd )) != ak_error_ok ) goto error_exit;
   	 if(( error = ak_fiot_context_set_client( ctx,
-                                            remote_addr )) != ak_error_ok ) goto exit;
-	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto exit;
+                                            remote_addr )) != ak_error_ok ) goto error_exit;
+	 if(( error = ak_fiot_context_set_blom_key_from_skey( ctx, blom_key, ak_false )) != ak_error_ok ) goto error_exit;
   	/* устанавливаем набор криптографических алгоритмов для обмена зашифрованной информацией */
   	 if(( error =  ak_fiot_context_set_server_policy( ctx,
-                                            server_policy_type )) != ak_error_ok ) goto exit;
+                                            server_policy_type )) != ak_error_ok ) goto error_exit;
    }
   /* теперь выполняем протокол */
-    if(( error = ak_fiot_context_keys_generation_protocol( ctx )) != ak_error_ok ) goto exit;
+    if(( error = ak_fiot_context_keys_generation_protocol( ctx )) != ak_error_ok ) goto error_exit;
     
 
 
-    DEBUGMSGTL(("fiotudp", "starting a new connection\n"));
     cachep->next = fiot_cache_list;
     cachep->sas.sin = remote_addr;
     cachep->tlsdata = tlsbase;
     fiot_cache_list = cachep;
 
-    exit:
-
     return cachep;
+
+error_exit:
+    free(cachep);
+    return NULL;
 }
 
 static fiot_cache *
@@ -375,10 +383,14 @@ char* netsnmp_extract_security_name(fiot_cache* cachep) {
     char *fp;
     char* securityName = NULL;
     int rc;
+    
+    if (!cachep->fctx.epsk_id.data)
+	    return NULL;
 
     chain_maps = netsnmp_cert_map_container();
     
-    fp = malloc(cachep->fctx.epsk_id.size + 1);
+    if ((fp = malloc(cachep->fctx.epsk_id.size + 1)) == NULL)
+	    goto exit;
     memcpy(fp, cachep->fctx.epsk_id.data, cachep->fctx.epsk_id.size);
     fp[cachep->fctx.epsk_id.size] = 0;
     peer_cert = netsnmp_cert_map_alloc(fp, NULL);
@@ -425,6 +437,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    _netsnmpTLSBaseData* tlsdata;
    int error = ak_error_ok;
    socklen_t opt = sizeof( cl_addr );
+   fiot_cache* cachep;
    ak_fiot ctx;
    
    if (ak_network_recvfrom(t->sock, &msg, 1, MSG_PEEK, &cl_addr, &opt) <= 0) {
@@ -435,13 +448,19 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    addr_pair.remote_addr.sin = cl_addr;
    
 	
-   fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
+   cachep = find_or_create_fiot_cache(t, &addr_pair.remote_addr, WE_ARE_SERVER);
+   if (!cachep)
+	   return rc;
+   
    ctx = &cachep->fctx;
    tlsdata = cachep->tlsdata;
 
 
    *olength=sizeof(netsnmp_tmStateReference);
    *opaque = calloc(1, sizeof(netsnmp_tmStateReference));
+
+   if (!*opaque)
+	   goto error_exit_free_cache;
 
    netsnmp_tmStateReference* tmStateRef = *opaque;
 
@@ -458,6 +477,7 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
 	   secName = tlsdata->securityName;
    } else {
 	   secName = netsnmp_extract_security_name(cachep);
+	   if (!secName) goto error_exit;
 	   tlsdata->securityName = secName;
    }
 
@@ -474,24 +494,32 @@ netsnmp_fiotudp_recv(netsnmp_transport *t, void *buf, int size,
    message_t mtype = undefined_message;
    frame_type_t ftype;
    ak_uint8* data = ak_fiot_context_read_frame( ctx, &length, &mtype, &ftype );
-   if( data != NULL ) {
-     printf( "echo-server: recived length %lu\n", length );
+   if( !data ) {
+   	goto error_exit;
    }
 
-   if (ftype = encrypted_frame) {
+   if (ftype == encrypted_frame) {
    	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
    } else {
    	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
    }
 
    if (length == strlen(CLOSE_CONNECTION_MSG) && memcmp(data, CLOSE_CONNECTION_MSG, length) == 0) {
-           remove_and_free_fiot_cache(cachep);
-           return -2;
+           /* It's not an actual error */
+	   rc -2;
+           goto error_exit;
    }
 
    memcpy(buf, data, length);
    rc = length;
 
+   return rc;
+
+error_exit:
+   SNMP_FREE(*opaque);
+
+error_exit_free_cache:
+   remove_and_free_fiot_cache(cachep);
    return rc;
 }
 
@@ -540,35 +568,49 @@ netsnmp_fiotudp_send(netsnmp_transport *t, const void *buf, int size,
     ak_fiot ctx;
     netsnmp_indexed_addr_pair* addr_pair;
     _netsnmpTLSBaseData* tlsdata = t->data;
+    netsnmp_tmStateReference* tmStateRef;
+    fiot_cache* cachep;
 
-    addr_pair = _extract_addr_pair(t, opaque ? *opaque : NULL, olength ? *olength : 0); 
-    netsnmp_tmStateReference* tmStateRef = *opaque;
+    if (!*opaque)
+	    return rc;
+
+    addr_pair = _extract_addr_pair(t, *opaque, *olength); 
+    
+    tmStateRef = *opaque;
     tmStateRef->addresses = *addr_pair;
     tmStateRef->have_addresses = 1;
 
-    fiot_cache* cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_CLIENT);
+    cachep = find_or_create_fiot_cache(t, &addr_pair->remote_addr, WE_ARE_CLIENT);
+    if (!cachep)
+	    return rc;
+
     ctx = &cachep->fctx;
 
-    if (tlsdata && !tlsdata->securityName && tmStateRef &&
+    if (tlsdata && !tlsdata->securityName &&
         tmStateRef->securityNameLen > 0) {
         tlsdata->securityName = strdup(tmStateRef->securityName);
     }
 
     frame_type_t ftype;
-    if (tmStateRef->transportSecurityLevel == SNMP_SEC_LEVEL_AUTHPRIV) {
+    if (tmStateRef->requestedSecurityLevel == SNMP_SEC_LEVEL_AUTHPRIV) {
     	ftype = encrypted_frame;
     } else {
     	ftype = plain_frame;
+	tmStateRef->transportSecurityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
     }
 
     if(( error = ak_fiot_context_write_frame( ctx, buf, size,
                                              ftype, application_data )) != ak_error_ok ) {
      	ak_error_message( error, __func__, "write error" );
+	goto error_exit;
     } else {
-	printf("echo-client: send %d bytes\n", size);
    	rc = size;
    }
 
+  return rc;
+
+error_exit:
+  remove_and_free_fiot_cache(cachep);
   return rc;
 }
 
@@ -589,15 +631,15 @@ netsnmp_fiotudp_close(netsnmp_transport *t)
 
     DEBUGMSGTL(("fiotudp:close", "closing fiotudp transport %p\n", t));
 
-    if (NULL != t->data && t->data_length == sizeof(_netsnmpTLSBaseData)) {
+    if (t->data && t->data_length == sizeof(_netsnmpTLSBaseData)) {
         tlsbase = t->data;
+    	t->data = NULL;
 
         if (tlsbase->addr)
             cachep = find_fiot_cache(&tlsbase->addr->remote_addr);
-    	t->data = NULL;
     }
 
-    if (NULL != t->data && t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
+    if (t->data && t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
     	netsnmp_indexed_addr_pair* addr_pair = t->data;
 	cachep = find_fiot_cache(&addr_pair->remote_addr);
 	SNMP_FREE(t->data);
@@ -623,18 +665,16 @@ exit:
 static netsnmp_transport *
 _transport_common(netsnmp_transport *t, int local)
 {
-    char *tmp = NULL;
-    int tmp_len;
-
     DEBUGTRACETOK("9:fiotudp");
 
-    if (NULL == t)
+    if (!t)
         return NULL;
 
-    if (NULL != t->data &&
+    if (t->data &&
         t->data_length == sizeof(netsnmp_indexed_addr_pair)) {
         _netsnmpTLSBaseData *tlsdata =
             netsnmp_tlsbase_allocate_tlsdata(t, local);
+
         tlsdata->addr = t->data;
         t->data = tlsdata;
         t->data_length = sizeof(_netsnmpTLSBaseData);
@@ -669,7 +709,7 @@ netsnmp_fiotudp_transport(const struct netsnmp_ep *ep, int local)
     DEBUGTRACETOK("fiotudp");
 
     t = netsnmp_udp_transport(ep, local);
-    if (NULL == t)
+    if (!t)
         return NULL;
 
     t2 = _transport_common(t, local);
@@ -733,10 +773,10 @@ netsnmp_fiotudp_create_ostring(const void *o, size_t o_len, int local)
 static void _parse_blom_key(const char* token, char* line)
 {
     if (blom_key)
-        return; //TODO error
+        return;
     blom_key = &blom_key_;
     if ( ak_skey_context_create(blom_key, 32 * 256, 8) != ak_error_ok )
-        return ; //TODO error
+        return ;
 
 
     ak_uint8 buf[32 * 256];
@@ -744,7 +784,7 @@ static void _parse_blom_key(const char* token, char* line)
         if (sscanf(line + i*2, "%02hhx", &buf[i]) != 1) break;
 
     if ( ak_skey_context_set_key(blom_key, buf, 32 * 256, ak_true ) != ak_error_ok )
-        return; //TODO error
+        return;
 }
 
 static void _release_blom_key()
@@ -790,6 +830,9 @@ netsnmp_fiotudp_ctor(void)
     fiotudpDomain.name = netsnmpFIOTUDPDomain;
     fiotudpDomain.name_length = netsnmpFIOTUDPDomain_len;
     fiotudpDomain.prefix = calloc(num_prefixes + 1, sizeof(char *));
+    if (!fiotudpDomain.prefix)
+	    return;
+
     for (i = 0; i < num_prefixes; ++ i)
         fiotudpDomain.prefix[i] = prefixes[i];
 
